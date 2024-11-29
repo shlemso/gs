@@ -1,0 +1,195 @@
+--CheesyManiac Server Icon Script v2.0
+--Original Source: https://github.com/CheesyManiac/cheesy-lua/
+--Distributed under the GNU GPL v3.0 License
+--More info: https://choosealicense.com/licenses/gpl-3.0/
+
+-------------------------------------------------------------------
+
+--x is horizontal
+--y is vertical
+--(0,0) is the top left corner
+
+local scriptVersion = "2.0"
+ac.debug("1. Cheesy Icon Script", 'v'..scriptVersion)
+ac.debug("2. Original Source: ", "https://github.com/CheesyManiac/")
+
+local screensize = vec2(ac.getSim().windowWidth,ac.getSim().windowHeight)
+local debugFlash, debugImage, debugLines,imageMetaLoaded = false, false, false, 0
+setInterval(function ()debugFlash = not debugFlash end, 0.5)
+ui.setAsynchronousImagesLoading(true)
+
+
+--Image Config table that is used by the script. 
+--Duplicate the entire table and increment the numbers by 1.
+--Follow the example from image_0 and image_1 to get an understanding of how it works.
+local image_0_source = '"data:image/jpeg;base64,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"'
+local image_1_source = '""\\asus-pink\Pictures\GS LOGO FOR SUKA.png""'
+
+-------------------------------------------------------------------
+local function loadImageMeta()
+    if imageMetaLoaded <  3 then
+-------------------------------------------------------------------
+
+        image_0 = {
+        ['src'] = ui.GIFPlayer(image_0_source),
+        ['sizeX'] = ui.imageSize(image_0_source).x,
+        ['sizeY'] = ui.imageSize(image_0_source).y,
+        ['paddingX'] = 10,
+        ['paddingY'] = 10,
+        ['scale'] = 0.5}
+
+
+        image_1 = {
+        ['src'] = ui.GIFPlayer(image_1_source),
+        ['sizeX'] = ui.imageSize(image_1_source).x,
+        ['sizeY'] = ui.imageSize(image_1_source).y,
+        ['paddingX'] = 0,
+        ['paddingY'] = 0,
+        ['scale'] = 1}
+
+
+-------------------------------------------------------------------
+--------------DO NOT EDIT ANYTHING BELOW THIS LINE-----------------
+---------------UNLESS YOU KNOW WHAT YOU ARE DOING------------------
+-------------------------------------------------------------------
+        imageMetaLoaded = imageMetaLoaded + 1
+    end
+end
+
+local function drawdebugLines()
+    --horizontal
+    ui.drawLine(vec2(0, screensize.y/2), vec2(screensize.x, screensize.y/2), rgbm.colors.red,2)
+    ui.drawText(" X-axis", vec2(0, screensize.y/2),rgbm.colors.red)
+    --vertical
+    ui.drawLine(vec2(screensize.x/2, 0), vec2(screensize.x/2, screensize.y),rgbm.colors.blue,2)
+    ui.drawText(" Y-axis", vec2(screensize.x/2, 0),rgbm.colors.blue)
+end
+
+---@alias screenPosition
+---| 'top_left' @!Top Left
+---| 'top_center' @!Top Center
+---| 'top_right' @!Top Right
+---| 'center_left' @!Center Left
+---| 'center_center' @!Center Center
+---| 'center_right' @!Center Right
+---| 'bottom_left' @!Bottom Left
+---| 'bottom_center' @!Bottom Center
+---| 'bottom_right' @!Bottom Right
+
+---Draws an image on the screen based on a table of locations, a source image table.
+---@param image T @Tmage config table from above that holds the information about an image.
+---@param position screenPosition @Choose the initial location on the screen of the image, then use the padding in the image config to move it.
+---@param debug boolean? @Enable the debug box around the image to check boundaries
+---@param scaleOverride integer? @Override the scale of the image in the image config
+local function positionImage(image, position, debug, scaleOverride)
+        if scaleOverride ~= nil then
+            pos = {
+                ['top_left'] =      vec2(image.paddingX,image.paddingY),
+                ['top_center'] =    vec2((screensize.x/2)-(image.sizeX/2*scaleOverride),image.paddingY),
+                ['top_right'] =     vec2((screensize.x)-(image.sizeX*scaleOverride)-image.paddingX,image.paddingY),
+                ['center_left'] =   vec2(image.paddingX, (screensize.y/2)-(image.sizeY/2*scaleOverride)),
+                ['center_center'] = vec2(screensize.x/2-(image.sizeX/2*scaleOverride)+image.paddingX,        screensize.y/2-(image.sizeY/2*scaleOverride)+image.paddingY),
+                ['center_right'] =  vec2(screensize.x-(image.sizeX*scaleOverride)-image.paddingX, screensize.y/2-(image.sizeY/2*scaleOverride)),
+                ['bottom_left'] =   vec2(image.paddingX, screensize.y-(image.sizeY*scaleOverride)-image.paddingY),
+                ['bottom_center'] = vec2(screensize.x/2-(image.sizeX/2*scaleOverride), screensize.y-(image.sizeY*scaleOverride)-image.paddingY),
+                ['bottom_right'] =  vec2((screensize.x)-(image.sizeX*scaleOverride)-image.paddingX, screensize.y-(image.sizeY*scaleOverride)-image.paddingY)
+            }
+            if debug then
+                display.rect({ pos = pos[position]-vec2(image.paddingX, image.paddingY),size = vec2(ui.imageSize(image.src)*scaleOverride+vec2(image.paddingX, image.paddingY):scale(2)),color = rgbm(0,0,0,0.5)})
+                if debugFlash then
+                    display.rect({pos = pos[position]-vec2(1,1),size = vec2(ui.imageSize(image.src)*scaleOverride)+vec2(2,2),color = rgbm(1,0,0,0.5)})
+                end
+            end
+        
+            display.image({
+                image = image.src,
+                pos = pos[position],
+                size = vec2(ui.imageSize(image.src)*scaleOverride),
+                color = rgbm.colors.white, uvStart = vec2(0, 0),uvEnd = vec2(1, 1)
+            })
+        elseif scaleOverride == nil or scaleOverride == 0 then
+            pos = {
+                ['top_left'] =      vec2(image.paddingX,image.paddingY),
+                ['top_center'] =    vec2((screensize.x/2)-(image.sizeX/2*image.scale),image.paddingY),
+                --['top_center'] =    vec2((screensize.x/2)-(ui.imageSize(image.src).x/2*image.scale),image.paddingY),
+                ['top_right'] =     vec2((screensize.x)-(image.sizeX*image.scale)-image.paddingX,image.paddingY),
+
+                ['center_left'] =   vec2(image.paddingX, (screensize.y/2)-(image.sizeY/2*image.scale)),
+                ['center_center'] = vec2(screensize.x/2-(image.sizeX/2*image.scale)+image.paddingX,        screensize.y/2-(image.sizeY/2*image.scale)+image.paddingY),
+                ['center_right'] =  vec2(screensize.x-(image.sizeX*image.scale)-image.paddingX, screensize.y/2-(image.sizeY/2*image.scale)),
+                
+                ['bottom_left'] =   vec2(image.paddingX, screensize.y-(image.sizeY*image.scale)-image.paddingY),
+                ['bottom_center'] = vec2(screensize.x/2-(image.sizeX/2*image.scale), screensize.y-(image.sizeY*image.scale)-image.paddingY),
+                ['bottom_right'] =  vec2((screensize.x)-(image.sizeX*image.scale)-image.paddingX, screensize.y-(image.sizeY*image.scale)-image.paddingY)
+            }
+            if debug then
+                display.rect({ pos = pos[position]-vec2(image.paddingX, image.paddingY),size = vec2(ui.imageSize(image.src)*image.scale+vec2(image.paddingX, image.paddingY):scale(2)),color = rgbm(0,0,0,0.5)})
+                if debugFlash then
+                    display.rect({pos = pos[position]-vec2(1,1),size = vec2(ui.imageSize(image.src)*image.scale)+vec2(2,2),color = rgbm(1,0,0,0.5)})
+                end
+            end
+        
+            display.image({
+                image = image.src,
+                pos = pos[position],
+                size = vec2(ui.imageSize(image.src)*image.scale),
+                color = rgbm.colors.white, uvStart = vec2(0, 0),uvEnd = vec2(1, 1)
+            })
+        end
+
+end
+
+local creditTimer = 10
+local creditPos = 0
+function script.update(dt)
+    ac.debug('Driver In Setup Menu', ac.getSim().isInMainMenu)
+    if not ac.getSim().isInMainMenu then
+        local a = 2
+        local b = 10
+        if creditTimer >= 0 then
+            creditTimer = creditTimer - (dt)
+        end
+        creditPos = (-0.01*b^(-a*creditTimer+math.log(500)/math.log(b)) + 2)*20
+    end
+    --ac.debug('creditPos', creditPos)
+    ac.debug('creditTimer', creditTimer)
+    --ac.debug("image_0_source", image_0_source)
+    --ac.debug("image_1_source", image_1_source)
+    ac.debug('imageMetaLoaded', imageMetaLoaded)
+    --ac.debug("imageready",ui.isImageReady(image_0_source))
+    loadImageMeta() 
+end
+
+ui.registerOnlineExtra(ui.Icons.Bug, "Server Icon Debug", function () return true end, function () 
+        if ui.checkbox("Draw Image Boundary Boxes", debugImage) then debugImage = not debugImage end
+        if ui.checkbox("Draw Screen Center Lines", debugLines) then debugLines = not debugLines end
+    end, function (okClicked) end,ui.OnlineExtraFlags.Admin)
+
+
+function script.drawUI()
+    if creditTimer > 0 then
+        display.rect({ pos = vec2(screensize.x/2-120, creditPos-5), size = vec2(240,40), color = rgbm(0,0,0,0.5)})
+        display.text({
+            text = 'Server Icon Script v'..scriptVersion..'\n    by CheesyManiac',
+            pos = vec2((screensize.x/2)-92, creditPos),
+            letter = vec2(8, 16),
+            font = 'aria',
+            color = rgbm.colors.white
+          })
+    end
+    if debugLines then
+        drawdebugLines()
+    end
+
+-------------------------------------------------------------------
+-------------ADD YOUR ADDITIONAL IMAGES UNDER HERE,----------------
+----------------SO THAT THEY ARE DRAWN ON SCREEN-------------------
+-------------------------------------------------------------------
+
+
+    positionImage(image_0, 'center_left', debugImage)
+    positionImage(image_0, 'center_center', debugImage)
+
+
+--DO NOT forget the final "end" over here, otherwise it will not work.
+end
