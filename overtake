@@ -1,41 +1,33 @@
-local config = ac.configValues({
-    minimumSpeed = 80,
-    showUI = false,
-    collisionMessages = "",
-    overtakeMessages = "",
-    closeOvertakeMessages = ""
-})
+-- This mode in particular is meant for Track Day with AI Flood on large tracks. Set
+-- AIs to draw some slow cars, get yourself that Red Bull monstrousity and try to 
+-- score some points.
 
-local collisionMessages = stringify.parse(config.collisionMessages)
-local overtakeMessages = stringify.parse(config.overtakeMessages)
-local closeOvertakeMessages = stringify.parse(config.closeOvertakeMessages)
+-- Event configuration:
+local requiredSpeed = 80
 
-ui.registerOnlineExtra(ui.Icons.CarFront, "Overtake Run", nil, nil, function (okClicked)
-  config.showUI = not config.showUI
-end)
+-- Event doesn’t start right away, instead, here’s a message to show before the start:
+ac.setStartMessage('Get to '..requiredSpeed..' km/h to begin the Overtake Run')
+
+-- This function is called before event activates. Once it returns true, it’ll run:
+function script.prepare(dt)
+  ac.debug('speed', ac.getCarState(1).speedKmh)
+  return ac.getCarState(1).speedKmh > 60
+end
 
 -- Event state:
 local timePassed = 0
 local totalScore = 0
 local comboMeter = 1
 local comboColor = 0
-local currentRank = 0
+local dangerouslySlowTimer = 0
+local carsState = {}
+local wheelsWarningTimeout = 0
 
-local personalBest = 0
-local ownRank = 0
-
+-- For various reasons, this is the most questionable part, some UI. I don’t really like
+-- this way though. So, yeah, still thinking about the best way to do it.
 local messages = {}
 local glitter = {}
 local glitterCount = 0
-
-local overtakeEventType = {
-    NONE = 0,
-    OVERTAKE = 1,
-    COLLISION = 2,
-    FINISHED = 3,
-    TOO_SLOW = 4,
-    CLOSE_OVERTAKE = 5
-}
 
 local function addMessage(text, mood)
   for i = math.min(#messages + 1, 4), 2, -1 do
@@ -57,59 +49,114 @@ local function addMessage(text, mood)
   end
 end
 
-local numUpdates = 0
-local overtakeUpdateEvent = ac.OnlineEvent({
-    ac.StructItem.key("overtakeUpdate"),
-    score = ac.StructItem.int64(),
-    combo = ac.StructItem.float(),
-    events = ac.StructItem.array(ac.StructItem.byte(), 10),
-    rank = ac.StructItem.int32()
-}, function (sender, message)
-    if sender ~= nil then return end
-
-    numUpdates = numUpdates + 1
-    ac.debug("No. of Updates", numUpdates)
-
-    comboMeter = tonumber(message.combo)
-    totalScore = tonumber(message.score)
-    currentRank = tonumber(message.rank)
-
-    if totalScore > personalBest then
-        personalBest = totalScore
-    end
-
-    for i = 0, 9 do
-        if     message.events[i] == overtakeEventType.NONE           then break
-        elseif message.events[i] == overtakeEventType.OVERTAKE       then addMessage(overtakeMessages[math.random(#overtakeMessages)], 0)
-        elseif message.events[i] == overtakeEventType.CLOSE_OVERTAKE then addMessage(closeOvertakeMessages[math.random(#closeOvertakeMessages)], 1)
-        elseif message.events[i] == overtakeEventType.TOO_SLOW       then addMessage("Speed up!", -1)
-        elseif message.events[i] == overtakeEventType.COLLISION      then addMessage(collisionMessages[math.random(#collisionMessages)], -1)
-        end
-    end
-end)
-
-local overtakePersonalBestEvent = ac.OnlineEvent({
-    ac.StructItem.key("overtakePersonalBest"),
-    score = ac.StructItem.int64(),
-    rank = ac.StructItem.int32()
-}, function (sender, message)
-    if sender ~= nil then return end
-
-    personalBest = tonumber(message.score)
-    ownRank = tonumber(message.rank)
-end)
-
-overtakePersonalBestEvent({})
-
 function script.update(dt)
-  if not config.showUI then return end
+  if timePassed == 0 then
+    addMessage('Let’s go!', 0)
+  end
 
-  local comboFadingRate = 0.5 * math.lerp(1, 0.1, math.lerpInvSat(car.speedKmh, 80, 200))
+  local player = ac.getCar(0)
+  if not player then
+    return
+  end
+  
+  if player.engineLifeLeft < 1 then
+    ac.endSession('Overtake score: ' .. totalScore, true, {
+      summary = 'Score: ' .. totalScore,
+      message = '• Final score: '..totalScore
+    })
+    return
+  end
+
+  timePassed = timePassed + dt
+
+  local comboFadingRate = 0.5 * math.lerp(1, 0.1, math.lerpInvSat(player.speedKmh, 80, 200)) + player.wheelsOutside
   comboMeter = math.max(1, comboMeter - dt * comboFadingRate)
+
+  local sim = ac.getSim()
+  while sim.carsCount > #carsState do
+    carsState[#carsState + 1] = {}
+  end
+
+  if wheelsWarningTimeout > 0 then
+    wheelsWarningTimeout = wheelsWarningTimeout - dt
+  elseif player.wheelsOutside > 0 then
+    if wheelsWarningTimeout == 0 then
+    end
+    addMessage('Car is outside', -1)
+    wheelsWarningTimeout = 60
+  end
+
+  if player.speedKmh < requiredSpeed then 
+    if dangerouslySlowTimer > 3 then      
+      ac.endSession('Overtake score: ' .. totalScore, true, {
+        summary = 'Score: ' .. totalScore,
+        message = '• Final score: '..totalScore
+      })
+    else
+      if dangerouslySlowTimer == 0 then addMessage('Too slow!', -1) end
+      ac.setSystemMessage('Overtake Run', 'You’re going too slow: '..(math.ceil(dangerouslySlowTimer * 10) / 10)..'/3')
+    end
+    dangerouslySlowTimer = dangerouslySlowTimer + dt
+    comboMeter = 1
+    return
+  else 
+    dangerouslySlowTimer = 0
+  end
+
+  for i = 2, ac.getSim().carsCount do 
+    local car = ac.getCar(i - 1) or error()
+    local state = carsState[i]
+
+    if car.position:closerToThan(player.position, 10) then
+      local drivingAlong = math.dot(car.look, player.look) > 0.2
+      if not drivingAlong then
+        state.drivingAlong = false
+
+        if not state.nearMiss and car.position:closerToThan(player.position, 3) then
+          state.nearMiss = true
+
+          if car.position:closerToThan(player.position, 2.5) then
+            comboMeter = comboMeter + 3
+            addMessage('Very close near miss!', 1)
+          else
+            comboMeter = comboMeter + 1
+            addMessage('Near miss: bonus combo', 0)
+          end
+        end
+      end
+
+      if car.collidedWith == 1 and not state.collided then
+        totalScore = totalScore - 100
+        comboMeter = 1
+        addMessage('Collision', -1)
+        state.collided = true
+      end
+
+      if not state.overtaken and not state.collided and state.drivingAlong then
+        local posDir = (car.position - player.position):normalize()
+        local posDot = math.dot(posDir, car.look)
+        state.maxPosDot = math.max(state.maxPosDot, posDot)
+        if posDot < -0.5 and state.maxPosDot > 0.5 then
+          totalScore = totalScore + math.ceil(10 * comboMeter)
+          comboMeter = comboMeter + 1
+          comboColor = comboColor + 90
+          addMessage('Overtake', comboMeter > 20 and 1 or 0)
+          state.overtaken = true
+        end
+      end
+
+    else
+      state.maxPosDot = -1
+      state.overtaken = false
+      state.collided = false
+      state.drivingAlong = true
+      state.nearMiss = false
+    end
+  end
 end
 
 local function updateMessages(dt)
-  comboColor = comboColor + math.min(25, dt * 3 * comboMeter)
+  comboColor = comboColor + dt * 10 * comboMeter
   if comboColor > 360 then comboColor = comboColor - 360 end
   for i = 1, #messages do
     local m = messages[i]
@@ -145,12 +192,10 @@ end
 
 local speedWarning = 0
 function script.drawUI()
-  if not config.showUI then return end
-
   local uiState = ac.getUI()
   updateMessages(uiState.dt)
 
-  local speedRelative = math.saturate(math.floor(ac.getCarState(1).speedKmh) / config.minimumSpeed)
+  local speedRelative = math.saturate(math.floor(ac.getCarState(1).speedKmh) / requiredSpeed)
   speedWarning = math.applyLag(speedWarning, speedRelative < 1 and 1 or 0, 0.5, uiState.dt)
 
   local colorDark = rgbm(0.4, 0.4, 0.4, 1)
@@ -161,7 +206,7 @@ function script.drawUI()
   local function speedMeter(ref)
     ui.drawRectFilled(ref + vec2(0, -4), ref + vec2(180, 5), colorDark, 1)
     ui.drawLine(ref + vec2(0, -4), ref + vec2(0, 4), colorGrey, 1)
-    ui.drawLine(ref + vec2(config.minimumSpeed, -4), ref + vec2(config.minimumSpeed, 4), colorGrey, 1)
+    ui.drawLine(ref + vec2(requiredSpeed, -4), ref + vec2(requiredSpeed, 4), colorGrey, 1)
 
     local speed = math.min(ac.getCarState(1).speedKmh, 180)
     if speed > 1 then
@@ -169,42 +214,28 @@ function script.drawUI()
     end
   end
 
-  ui.beginTransparentWindow("overtakeScore", vec2(uiState.windowSize.x * 0.5 - 600, 100), vec2(400, 400), false)
+  ui.beginTransparentWindow('overtakeScore', vec2(uiState.windowSize.x * 0.5 - 600, 100), vec2(400, 400), false)
   ui.beginOutline()
 
   ui.pushStyleVar(ui.StyleVar.Alpha, 1 - speedWarning)
   ui.pushFont(ui.Font.Title)
-  ui.text("Overtake Run")
+  ui.text('Overtake Run')
   ui.popFont()
   ui.popStyleVar()
 
-  local pbText = "PB: " .. personalBest .. " pts"
-  if ownRank > 0 then
-    pbText = pbText .. " (" .. ownRank .. ".)"
-  end
-  ui.text(pbText)
-
   ui.pushFont(ui.Font.Huge)
-  ui.text(totalScore .. " pts")
+  ui.text(totalScore .. ' pts')
   ui.sameLine(0, 40)
   if comboMeter > 20 then
     ui.beginRotation()
   end
-  ui.textColored(math.ceil(comboMeter * 10) / 10 .. "x", colorCombo)
+  ui.textColored(math.ceil(comboMeter * 10) / 10 .. 'x', colorCombo)
   if comboMeter > 20 then
     ui.endRotation(math.sin(comboMeter / 180 * 3141.5) * 3 * math.lerpInvSat(comboMeter, 20, 30) + 90)
   end
   ui.popFont()
-
-  if currentRank > 0 then
-    ui.offsetCursorY(-5)
-    ui.pushFont(ui.Font.Title)
-    ui.text("Current Rank: " .. currentRank .. ".")
-    ui.popFont()
-  end
-  
   ui.endOutline(rgbm(0, 0, 0, 0.3))
-
+  
   ui.offsetCursorY(20)
   ui.pushFont(ui.Font.Title)
   local startPos = ui.getCursor()
@@ -212,9 +243,8 @@ function script.drawUI()
     local m = messages[i]
     local f = math.saturate(4 - m.currentPos) * math.saturate(8 - m.age)
     ui.setCursor(startPos + vec2(20 + math.saturate(1 - m.age * 10) ^ 2 * 100, (m.currentPos - 1) * 30))
-    ui.beginOutline()
-    ui.textColored(m.text, m.mood == 1 and rgbm(0, 1, 0, f) or m.mood == -1 and rgbm(1, 0, 0, f) or rgbm(1, 1, 1, f))
-    ui.endOutline(rgbm(0, 0, 0, 0.3 * f))
+    ui.textColored(m.text, m.mood == 1 and rgbm(0, 1, 0, f) 
+      or m.mood == -1 and rgbm(1, 0, 0, f) or rgbm(1, 1, 1, f))
   end
   for i = 1, glitterCount do
     local g = glitter[i]
@@ -228,40 +258,10 @@ function script.drawUI()
   ui.pushStyleVar(ui.StyleVar.Alpha, speedWarning)
   ui.setCursorY(0)
   ui.pushFont(ui.Font.Main)
-  ui.textColored("Keep speed above " .. config.minimumSpeed .. " km/h:", colorAccent)
+  ui.textColored('Keep speed above '..requiredSpeed..' km/h:', colorAccent)
   speedMeter(ui.getCursor() + vec2(-9, 4))
   ui.popFont()
   ui.popStyleVar()
 
   ui.endTransparentWindow()
 end
-
---[[
-  This script is based on the overtake mode by x4fab licensed under the MIT license:
-  https://github.com/ac-custom-shaders-patch/acc-lua-internal/blob/main/included-new-modes/overtake/mode.lua
-
-  Please note that the MIT license only applies to code written by x4fab.
-  All other parts of this file are (c) 2023 AssettoServer Development Team.
-
-  MIT License
-
-  Copyright (c) 2022 Ilja Jusupov
-
-  Permission is hereby granted, free of charge, to any person obtaining a copy
-  of this software and associated documentation files (the "Software"), to deal
-  in the Software without restriction, including without limitation the rights
-  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-  copies of the Software, and to permit persons to whom the Software is
-  furnished to do so, subject to the following conditions:
-
-  The above copyright notice and this permission notice shall be included in all
-  copies or substantial portions of the Software.
-
-  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-  SOFTWARE.
-]]
